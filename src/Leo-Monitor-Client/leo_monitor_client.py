@@ -15,6 +15,7 @@ PASSWORD = '123456'
 INTERVAL = 1
 
 import os
+import time
 
 
 def get_uptime():
@@ -36,3 +37,26 @@ def get_loadavg():
     data = os.getloadavg()
     data = [round(i, 4) for i in data]
     return data
+
+
+def _get_cpu_usage():
+    with open('/proc/stat') as f:
+        line = f.readline()
+    data = line.split()[1:5]
+    data = [int(i) for i in data]
+    return data
+
+
+def get_cpu_usage():
+    """
+    获取CPU的使用率
+    :return: CPU的使用率(百分比)
+    """
+    x = _get_cpu_usage()
+    time.sleep(INTERVAL)
+    y = _get_cpu_usage()
+    data = [y[i] - x[i] for i in range(len(y))]
+    usage = data[0] + data[2] + data[3]
+    if usage == 0:
+        return 100
+    return int((usage - data[3]) * 100 / usage)

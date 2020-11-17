@@ -60,3 +60,37 @@ def get_cpu_usage():
     if usage == 0:
         return 100
     return int((usage - data[3]) * 100 / usage)
+
+
+def get_memory():
+    """
+    获取RAM和Swap的使用率
+    :return: RAM和Swap的使用率
+    """
+    data = {}
+    with open('/proc/meminfo') as f:
+        for line in f.readlines():
+            pair = line.split()
+            data[pair[0]] = pair[1]
+    mem_total = int(data['MemTotal:'])
+    mem_free = int(data['MemFree:'])
+    mem_available = int(data['MemAvailable:'])
+    buffers = int(data['Buffers:'])
+    cached = int(data['Cached:'])
+    mem_used = mem_total - mem_available
+    real_used = mem_total - (mem_free + buffers + cached)
+    swap_total = int(data['SwapTotal::'])
+    swap_free = int(data['SwapFree:'])
+    swap_used = swap_total - swap_free
+    memory = {
+        'total': mem_total,
+        'used': mem_used,
+        'realUsed': real_used,
+        'buffers': buffers,
+        'cached': cached
+    }
+    swap = {
+        'total': swap_total,
+        'used': swap_used
+    }
+    return memory, swap

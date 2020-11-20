@@ -4,8 +4,9 @@
 """
 Leo Monitor Python3 Client
 Version: 1.0
+Required: Python 3.5(+)
 Author: Eugene Wu <kuretru@gmail.com>
-URL: https://github.com/kuretru/SingleNet-Robot
+URL: https://github.com/kuretru/Leo-Monitor
 """
 
 SERVER = 'monitor.kuretru.com'
@@ -16,6 +17,7 @@ INTERVAL = 1
 
 import os
 import time
+import subprocess
 
 
 def get_uptime():
@@ -64,33 +66,39 @@ def get_cpu_usage():
 
 def get_memory():
     """
-    获取RAM和Swap的使用率
-    :return: RAM和Swap的使用率
+    获取RAM和Swap的使用情况
+    :return: RAM和Swap的使用情况(MB)
     """
     data = {}
     with open('/proc/meminfo') as f:
         for line in f.readlines():
             pair = line.split()
             data[pair[0]] = pair[1]
-    mem_total = int(data['MemTotal:'])
-    mem_free = int(data['MemFree:'])
-    mem_available = int(data['MemAvailable:'])
-    buffers = int(data['Buffers:'])
-    cached = int(data['Cached:'])
-    mem_used = mem_total - mem_available
-    real_used = mem_total - (mem_free + buffers + cached)
-    swap_total = int(data['SwapTotal::'])
-    swap_free = int(data['SwapFree:'])
-    swap_used = swap_total - swap_free
-    memory = {
-        'total': mem_total,
-        'used': mem_used,
-        'realUsed': real_used,
-        'buffers': buffers,
-        'cached': cached
-    }
-    swap = {
-        'total': swap_total,
-        'used': swap_used
-    }
+    memory = {}
+    memory['total'] = int(data['MemTotal:'])
+    memory['buffers'] = int(data['Buffers:'])
+    memory['cached'] = int(data['Cached:'])
+    memory['used'] = memory['total'] - int(data['MemAvailable:'])
+    memory['realUsed'] = memory['total'] - (int(data['MemFree:']) + memory['buffers'] + memory['cached'])
+    swap = {}
+    swap['total'] = int(data['SwapTotal:'])
+    swap['used'] = swap['total'] - int(data['SwapFree:'])
     return memory, swap
+
+
+def _run_subprocess(args):
+    output = subprocess.run(args, capture_output=True, check=True)
+    return output.stdout.decode().replace('\n', '').strip()
+
+
+def get_storage():
+    """
+    获取硬盘的使用情况
+    :return:  硬盘的使用情况(GB)
+    """
+    command = 'df -Tlg --total -t ext4 -t ext3 -t ext2 -t xfs'
+    output = _run_subprocess(command)
+    data = output.splitlines()[-1].split()
+    total = int(data[2])
+    used = int(data[3])
+    return {'total': total, 'used': used}

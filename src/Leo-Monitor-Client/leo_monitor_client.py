@@ -87,8 +87,8 @@ def get_memory():
 
 
 def _run_subprocess(args):
-    output = subprocess.run(args, capture_output=True, check=True)
-    return output.stdout.decode().replace('\n', '').strip()
+    output = subprocess.run(args.split(), stdout=subprocess.PIPE, check=True)
+    return output.stdout.decode()
 
 
 def get_storage():
@@ -96,9 +96,9 @@ def get_storage():
     获取硬盘的使用情况
     :return:  硬盘的使用情况(GB)
     """
-    command = 'df -Tlg --total -t ext4 -t ext3 -t ext2 -t xfs'
+    command = 'df -TlBM --total -t ext4 -t ext3 -t ext2 -t xfs'
     output = _run_subprocess(command)
     data = output.splitlines()[-1].split()
-    total = int(data[2])
-    used = int(data[3])
+    total = int(data[2][:-1])
+    used = int(data[3][:-1])
     return {'total': total, 'used': used}

@@ -14,10 +14,14 @@ PORT = '8078'
 USERNAME = 'user'
 PASSWORD = '123456'
 INTERVAL = 1
+NETWORKS = ('eth0',)
 
 import os
 import time
 import subprocess
+
+last_cpu_usage = [0, 0, 0, 0]
+last_network_traffic = [0, 0]
 
 
 def get_uptime():
@@ -54,10 +58,11 @@ def get_cpu_usage():
     获取CPU的使用率
     :return: CPU的使用率(百分比)
     """
-    x = _get_cpu_usage()
-    time.sleep(INTERVAL)
+    global last_cpu_usage
+    x = last_cpu_usage
     y = _get_cpu_usage()
     data = [y[i] - x[i] for i in range(len(y))]
+    last_cpu_usage = y
     usage = data[0] + data[2] + data[3]
     if usage == 0:
         return 100
@@ -94,7 +99,7 @@ def _run_subprocess(args):
 def get_storage():
     """
     获取硬盘的使用情况
-    :return:  硬盘的使用情况(GB)
+    :return: 硬盘的使用情况(GB)
     """
     command = 'df -TlBM --total -t ext4 -t ext3 -t ext2 -t xfs'
     output = _run_subprocess(command)
@@ -102,3 +107,53 @@ def get_storage():
     total = int(data[2][:-1])
     used = int(data[3][:-1])
     return {'total': total, 'used': used}
+
+
+def _get_network_traffic():
+    data = [0, 0]
+    with open('/proc/net/dev') as f:
+        lines = f.readlines()[2:]
+    for line in lines:
+        record = line.split()
+        if record[0][:-1] not in NETWORKS:
+            continue
+        data[0] += int(record[1])
+        data[1] += int(record[9])
+    return data
+
+
+def get_network_traffic():
+    """
+    获取网络的使用情况(聚合)
+    :return: 每秒传输速度及累计流量(Byte)
+    """
+    global last_network_traffic
+    x = last_network_traffic
+    y = _get_network_traffic()
+    diff = [y[i] - x[i] for i in range(len(y))]
+    last_network_traffic = y
+    data = {
+        'receiveSpeed': diff[0] / INTERVAL,
+        'transmitSpeed': diff[1] / INTERVAL,
+        'receiveTotal': y[0],
+        'transmitTotal': y[1]
+    }
+    return data
+
+
+def build_package():
+    data = {
+        'uptime': get_uptime(),
+        'load': get_loadavg(),
+        'cpu': get_cpu_usage(),
+        'storage': get_storage(),
+        'network': get_network_traffic()
+    }
+    memory, swap = get_memory()
+    data['memory'] = memory
+    data['swap'] = swap
+    return data
+
+
+if __name__ == '__init__':
+    build_package()

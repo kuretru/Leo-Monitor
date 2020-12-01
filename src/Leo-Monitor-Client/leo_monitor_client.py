@@ -9,19 +9,22 @@ Author: Eugene Wu <kuretru@gmail.com>
 URL: https://github.com/kuretru/Leo-Monitor
 """
 
-SERVER = 'monitor.kuretru.com'
-PORT = '8078'
+SERVER = '192.168.28.8'  # 服务端域名(地址)
+PORT = 8078  # 服务端监听端口
+MODE = '4'  # 连接模式：4->仅使用IPv4，6->仅使用IPv6，4,6->使用IPv4通信保持IPv6链接，6,4->使用IPv6通信保持IPv4链接
 USERNAME = 'user'
 PASSWORD = '123456'
 INTERVAL = 1
-NETWORKS = ('eth0',)
+NETWORKS = ('ens3',)
 
+import json
 import os
-import time
+import socket
 import subprocess
+import time
 
-last_cpu_usage = [0, 0, 0, 0]
-last_network_traffic = [0, 0]
+last_cpu_usage = []
+last_network_traffic = []
 
 
 def get_uptime():
@@ -74,21 +77,20 @@ def get_memory():
     获取RAM和Swap的使用情况
     :return: RAM和Swap的使用情况(MB)
     """
-    data = {}
+    raw = {}
     with open('/proc/meminfo') as f:
         for line in f.readlines():
             pair = line.split()
-            data[pair[0]] = pair[1]
-    memory = {}
-    memory['total'] = int(data['MemTotal:'])
-    memory['buffers'] = int(data['Buffers:'])
-    memory['cached'] = int(data['Cached:'])
-    memory['used'] = memory['total'] - int(data['MemAvailable:'])
-    memory['realUsed'] = memory['total'] - (int(data['MemFree:']) + memory['buffers'] + memory['cached'])
-    swap = {}
-    swap['total'] = int(data['SwapTotal:'])
-    swap['used'] = swap['total'] - int(data['SwapFree:'])
-    return memory, swap
+            raw[pair[0]] = pair[1]
+    data = {}
+    data['total'] = int(raw['MemTotal:'])
+    data['buffers'] = int(raw['Buffers:'])
+    data['cached'] = int(raw['Cached:'])
+    data['used'] = data['total'] - int(raw['MemAvailable:'])
+    data['realUsed'] = data['total'] - (int(raw['MemFree:']) + data['buffers'] + data['cached'])
+    data['swapTotal'] = int(raw['SwapTotal:'])
+    data['swapUsed'] = data['swapTotal'] - int(raw['SwapFree:'])
+    return data
 
 
 def _run_subprocess(args):
@@ -141,19 +143,13 @@ def get_network_traffic():
     return data
 
 
-def build_package():
+def build_payload():
     data = {
         'uptime': get_uptime(),
         'load': get_loadavg(),
         'cpu': get_cpu_usage(),
+        'memory': get_memory(),
         'storage': get_storage(),
         'network': get_network_traffic()
     }
-    memory, swap = get_memory()
-    data['memory'] = memory
-    data['swap'] = swap
     return data
-
-
-if __name__ == '__init__':
-    build_package()

@@ -153,3 +153,41 @@ def build_payload():
         'network': get_network_traffic()
     }
     return data
+
+
+# START, START, TYPE, LENGTH, LENGTH, payload ... payload, CHECKSUM, END, END, END
+MESSAGE_HEADER_LENGTH = 2 + 1 + 2 + 1 + 3
+MESSAGE_START_CHAR = b'\xff\xff'
+MESSAGE_TYPE = b'\x01'
+MESSAGE_END_CHAR = b'\xfe\xef\n'
+
+
+def build_message(message_type: bytes, payload: dict):
+    payload = json.dumps(payload).encode()
+    payload_length = len(payload)
+    message = bytearray(MESSAGE_HEADER_LENGTH + payload_length)
+    message[0:2] = MESSAGE_START_CHAR[:]
+    message[2] = message_type[0]
+    message[3] = (payload_length & 0xffff) >> 8
+    message[4] = payload_length & 0xff
+    message[5:5 + payload_length] = payload[:]
+    message[-3:] = MESSAGE_END_CHAR[:]
+    return bytes(message)
+
+
+def run_client(protocol, mode):
+    family = socket.AF_INET if protocol == 'IPv4' else socket.AF_INET6
+    while True:
+        with socket.socket(family, socket.SOCK_STREAM) as s:
+            s.connect((SERVER, PORT))
+            while True:
+                message = build_message(MESSAGE_TYPE, build_payload())
+                s.send(message)
+                time.sleep(INTERVAL)
+
+
+if __name__ == '__main__':
+    print('Starting LeoMonitor Client')
+    last_cpu_usage = _get_cpu_usage()
+    last_network_traffic = _get_network_traffic()
+    run_client('IPv4', 'data')

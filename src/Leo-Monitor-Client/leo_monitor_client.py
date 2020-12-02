@@ -11,7 +11,7 @@ URL: https://github.com/kuretru/Leo-Monitor
 
 SERVER = '192.168.28.8'  # 服务端域名(地址)
 PORT = 8078  # 服务端监听端口
-MODE = '4'  # 连接模式：4->仅使用IPv4，6->仅使用IPv6，4,6->使用IPv4通信保持IPv6链接，6,4->使用IPv6通信保持IPv4链接
+MODE = '4'  # 连接模式：4->仅使用IPv4，6->仅使用IPv6，4+6->使用IPv4通信保持IPv6链接，6+4->使用IPv6通信保持IPv4链接
 USERNAME = 'user'
 PASSWORD = '123456'
 INTERVAL = 1
@@ -21,6 +21,8 @@ import json
 import os
 import socket
 import subprocess
+import sys
+import threading
 import time
 
 last_cpu_usage = []
@@ -158,12 +160,14 @@ def build_payload():
 # START, START, TYPE, LENGTH, LENGTH, payload ... payload, CHECKSUM, END, END, END
 MESSAGE_HEADER_LENGTH = 2 + 1 + 2 + 1 + 3
 MESSAGE_START_CHAR = b'\xff\xff'
-MESSAGE_TYPE = b'\x01'
+MESSAGE_TYPE_AUTH = b'\x01'
+MESSAGE_TYPE_DATA = b'\x02'
+MESSAGE_TYPE_PING = b'\x03'
 MESSAGE_END_CHAR = b'\xfe\xef\n'
 
 
 def build_message(message_type: bytes, payload: dict):
-    payload = json.dumps(payload).encode()
+    payload = json.dumps(payload).encode('utf-8')
     payload_length = len(payload)
     message = bytearray(MESSAGE_HEADER_LENGTH + payload_length)
     message[0:2] = MESSAGE_START_CHAR[:]
@@ -181,7 +185,7 @@ def run_client(protocol, mode):
         with socket.socket(family, socket.SOCK_STREAM) as s:
             s.connect((SERVER, PORT))
             while True:
-                message = build_message(MESSAGE_TYPE, build_payload())
+                message = build_message(MESSAGE_TYPE_DATA, build_payload())
                 s.send(message)
                 time.sleep(INTERVAL)
 
@@ -190,4 +194,17 @@ if __name__ == '__main__':
     print('Starting LeoMonitor Client')
     last_cpu_usage = _get_cpu_usage()
     last_network_traffic = _get_network_traffic()
-    run_client('IPv4', 'data')
+    if MODE == '4':
+        run_client('IPv4', 'data')
+    elif MODE == '6':
+        run_client('IPv6', 'data')
+    elif MODE == '4+6':
+        threading.Thread(target=run_client, args=('IPv4', 'data'), name='Thread-IPv4-Data').start()
+        threading.Thread(target=run_client, args=('IPv6', 'heart'), name='Thread-IPv6-Heart').start()
+    elif MODE == '6+4':
+        threading.Thread(target=run_client, args=('IPv6', 'data'), name='Thread-IPv6-Data').start()
+        threading.Thread(target=run_client, args=('IPv4', 'heart'), name='Thread-IPv4-Heart').start()
+    else:
+        print('Wrong client mode')
+        sys.exit(1)
+    print('Stopped LeoMonitor Client')

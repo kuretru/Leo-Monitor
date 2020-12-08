@@ -20,7 +20,6 @@ NETWORKS = ('ens3',)
 import json
 import os
 import socket
-import subprocess
 import sys
 import threading
 import time
@@ -96,6 +95,7 @@ def get_memory():
 
 
 def _run_subprocess(args):
+    import subprocess
     output = subprocess.run(args.split(), stdout=subprocess.PIPE, check=True)
     return output.stdout.decode()
 
@@ -157,6 +157,7 @@ def build_payload():
     return data
 
 
+MAX_BUFFER_SIZE = 4096
 # START, START, TYPE, LENGTH, LENGTH, payload ... payload, CHECKSUM, END, END, END
 MESSAGE_HEADER_LENGTH = 2 + 1 + 2 + 1 + 3
 MESSAGE_START_CHAR = b'\xff\xff'
@@ -179,15 +180,91 @@ def build_message(message_type: bytes, payload: dict):
     return bytes(message)
 
 
-def run_client(protocol, mode):
-    family = socket.AF_INET if protocol == 'IPv4' else socket.AF_INET6
-    while True:
-        with socket.socket(family, socket.SOCK_STREAM) as s:
-            s.connect((SERVER, PORT))
-            while True:
-                message = build_message(MESSAGE_TYPE_DATA, build_payload())
-                s.send(message)
-                time.sleep(INTERVAL)
+def parse_message(message_type: bytes, message: bytes):
+    message_length = len(message)
+    if not message:
+        raise EOFError
+    if message_length < MESSAGE_HEADER_LENGTH or (message_length == MAX_BUFFER_SIZE and '\n' not in message):
+        raise ParseFailedError('Illegal protocol or packet size too large')
+    if message[0:2] != MESSAGE_START_CHAR[:]:
+        raise ParseFailedError('Illegal protocol start char')
+    if message[-3:] != MESSAGE_END_CHAR[:]:
+        raise ParseFailedError('Illegal protocol end char')
+    if message_type[0] != message[2]:
+        raise ParseFailedError('Wrong message type')
+    payload_length = (message[3] << 8) | message[4]
+    if payload_length != message_length - MESSAGE_HEADER_LENGTH:
+        # TODO：待处理payload内含\n问题
+        raise ParseFailedError('Illegal payload size')
+    payload = message[5: 5 + payload_length]
+    payload = json.loads(payload.decode('utf-8'))
+    return payload
+
+
+def hmac_sha256(message: str, key: str):
+    import hmac
+    import hashlib
+    return hmac.new(
+        key.encode('utf-8'), msg=message.encode('utf-8'), digestmod=hashlib.sha256
+    ).hexdigest().lower()
+
+
+class ParseFailedError(Exception):
+    pass
+
+
+class ProtocolError(Exception):
+    pass
+
+
+class LeoMonitorClient:
+
+    def __init__(self, protocol='IPv4', mode='Data'):
+        self.protocol = protocol
+        self.mode = mode
+
+    def start(self):
+        thread = threading.Thread(target=self._run_client, name='Thread-%s-%s' % (self.protocol, self.mode))
+        thread.start()
+
+    def _run_client(self):
+        family = socket.AF_INET if self.protocol == 'IPv4' else socket.AF_INET6
+        while True:
+            with socket.socket(family, socket.SOCK_STREAM) as s:
+                s.connect((SERVER, PORT))
+                self.receive_auth_message(s)
+                while True:
+                    message = build_message(MESSAGE_TYPE_DATA, build_payload())
+                    s.send(message)
+                    time.sleep(INTERVAL)
+
+    def receive_auth_message(self, s: socket):
+        payload = self._receive_message(s, MESSAGE_TYPE_AUTH)
+        if payload['server'] != 'leo-monitor':
+            raise ProtocolError('Wrong API server')
+        if payload['protocol'] != 1.0:
+            raise ProtocolError('Wrong protocol version')
+        if payload['data'] != 'hello, need authentication':
+            raise ProtocolError('Wrong authentication message')
+
+    def send_auth_message(self, s: socket):
+        import uuid
+        nonce = uuid.uuid4().hex.lower()
+        payload = {
+            'username': USERNAME,
+            'password': hmac_sha256(PASSWORD, nonce),
+            'nonce': nonce,
+            'type': self.mode.lower()
+        }
+        self._send_message(s, MESSAGE_TYPE_AUTH, payload)
+
+    def _send_message(self, s: socket, message_type: bytes, payload: dict):
+        message = build_message(message_type, payload)
+        s.send(message)
+
+    def _receive_message(self, s: socket, message_type: bytes):
+        message = s.makefile(mode='b').readline()
+        return parse_message(message_type, message)
 
 
 if __name__ == '__main__':
@@ -195,15 +272,15 @@ if __name__ == '__main__':
     last_cpu_usage = _get_cpu_usage()
     last_network_traffic = _get_network_traffic()
     if MODE == '4':
-        run_client('IPv4', 'data')
+        LeoMonitorClient('IPv4', 'Data').start()
     elif MODE == '6':
-        run_client('IPv6', 'data')
+        LeoMonitorClient('IPv6', 'Data').start()
     elif MODE == '4+6':
-        threading.Thread(target=run_client, args=('IPv4', 'data'), name='Thread-IPv4-Data').start()
-        threading.Thread(target=run_client, args=('IPv6', 'heart'), name='Thread-IPv6-Heart').start()
+        LeoMonitorClient('IPv4', 'Data').start()
+        LeoMonitorClient('IPv6', 'Heart').start()
     elif MODE == '6+4':
-        threading.Thread(target=run_client, args=('IPv6', 'data'), name='Thread-IPv6-Data').start()
-        threading.Thread(target=run_client, args=('IPv4', 'heart'), name='Thread-IPv4-Heart').start()
+        LeoMonitorClient('IPv6', 'Data').start()
+        LeoMonitorClient('IPv4', 'Heart').start()
     else:
         print('Wrong client mode')
         sys.exit(1)

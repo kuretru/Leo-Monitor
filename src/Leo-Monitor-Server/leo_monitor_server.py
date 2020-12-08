@@ -17,6 +17,15 @@ import socketserver
 import sys
 import threading
 
+CONFIG = {
+    'title': '狮子监控',
+    'clients': [{
+        'name': '测试',
+        'username': 'user',
+        'password': '123456'
+    }]
+}
+
 MAX_BUFFER_SIZE = 4096
 # START, START, TYPE, LENGTH, LENGTH, payload ... payload, CHECKSUM, END, END, END
 MESSAGE_HEADER_LENGTH = 2 + 1 + 2 + 1 + 3
@@ -77,6 +86,12 @@ class ProtocolError(Exception):
     pass
 
 
+def load_config():
+    with open('leo-monitor.json') as f:
+        data = f.read()
+    return json.loads(data)
+
+
 class LeoMonitorRequestHandler(socketserver.StreamRequestHandler):
 
     def handle(self):
@@ -101,7 +116,7 @@ class LeoMonitorRequestHandler(socketserver.StreamRequestHandler):
         }
         self._send_message(MESSAGE_TYPE_AUTH, payload)
 
-    def handle_auth_message(self):
+    def receive_auth_message(self):
         payload = self._receive_message(MESSAGE_TYPE_AUTH)
 
     def receive_data_message(self):
@@ -135,5 +150,6 @@ def run_web_server():
 
 
 if __name__ == '__main__':
+    CONFIG = load_config()
     threading.Thread(target=run_monitor_server, name='Thread-Monitor').start()
     threading.Thread(target=run_web_server, name='Thread-Web').start()
